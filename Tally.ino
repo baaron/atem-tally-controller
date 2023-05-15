@@ -1,17 +1,31 @@
-// http://librarymanager/All#M5StickC https://github.com/m5stack/M5StickC
+/*****************
+  Tally light ESP32 for Blackmagic ATEM switcher
+
+  Version 2.1
+
+  A wireless (WiFi) tally light for Blackmagic Design
+  ATEM video switchers, based on the M5StickCPlus ESP32 development
+  board and the Arduino IDE.
+
+  For more information, see:
+  https://oneguyoneblog.com/2020/06/13/tally-light-esp32-for-blackmagic-atem-switcher/
+
+  Based on the work of Kasper Skårhøj:
+  https://github.com/kasperskaarhoj/SKAARHOJ-Open-Engineering
+  
+  Download SkaarhojPgmspace,ATEMbase, ATEMstd from here
+  https://github.com/kasperskaarhoj/SKAARHOJ-Open-Engineering/tree/master/ArduinoLibs
+
+******************/
 #include <M5StickCPlus.h>
 #include <WiFi.h>
-
-// Download these from here
-// https://github.com/kasperskaarhoj/SKAARHOJ-Open-Engineering/tree/master/ArduinoLibs
 #include <SkaarhojPgmspace.h>
 #include <ATEMbase.h>
 #include <ATEMstd.h>
 
-// Define the IP address of your ATEM switcher
-IPAddress switcherIp(192, 168, 200, 1);
+IPAddress switcherIp(192, 168, 1, 1);  // IP address of the ATEM switcher
+ATEMstd AtemSwitcher;
 
-// Put your wifi SSID and password here
 const char* ssid = "";
 const char* password = "";
 
@@ -28,11 +42,12 @@ int orientationMillisPrevious = millis();
 int buttonBMillis = 0;
 
 int cameraNumber = 1;
-bool batteryLevel = false;
+bool showBatteryLevel = false;
 
 int previewTallyPrevious = 1;
 int programTallyPrevious = 1;
 int cameraNumberPrevious = cameraNumber;
+bool showBatteryLevelPrevious = showBatteryLevel;
 
 void setup() {
   Serial.begin(9600);
@@ -45,7 +60,6 @@ void setup() {
   Serial.println("Connected to the WiFi network");
 
   M5.begin();
-  //M5.MPU6886.Init();
   M5.Imu.Init();
 
   M5.Lcd.setRotation(orientation);
@@ -56,18 +70,7 @@ void setup() {
   AtemSwitcher.begin(switcherIp);
   AtemSwitcher.serialOutput(0x80);
   AtemSwitcher.connect();
-
-  // GPIO初期化
-  //pinMode(26, INPUT); // PIN  (INPUT, OUTPUT, ANALOG)無線利用時にはANALOG利用不可, DAC出力可
-  //pinMode(36, INPUT); // PIN  (INPUT,       , ANALOG)入力専用、INPUT_PULLUP等も不可
-  //pinMode( 0, INPUT); // PIN  (INPUT, OUTPUT,       )外部回路でプルアップ済み
-  //pinMode(32, INPUT); // GROVE(INPUT, OUTPUT, ANALOG)
-  //pinMode(33, INPUT); // GROVE(INPUT, OUTPUT, ANALOG)
 }
-
-
-
-
 
 void setOrientation() {
   float accX = 0, accY = 0, accZ = 0;
@@ -94,11 +97,6 @@ void setOrientation() {
   }
 }
 
-
-void BtnM5() {
-  AtemSwitcher.changeProgramInput(cameraNumber);
-}
-
 void loop() {
 
   M5.update();
@@ -110,17 +108,17 @@ void loop() {
     }
   }
 
+  // Buttons Press
   if (M5.BtnA.wasPressed()) {
-    BtnM5();
-  }
-
-  if (M5.BtnB.wasPressed()) {
-    setOrientation();
     buttonBMillis = millis();
-    batteryLevel = !batteryLevel;
+    showBatteryLevel = !showBatteryLevel;
+    refreshScreen();
   }
 
-  if (M5.BtnB.isPressed() && buttonBMillis != 0 && buttonBMillis < millis() - 500) {
+  if (M5.BtnB.isPressed())
+      AtemSwitcher.changeProgramInput(cameraNumber);
+
+  if (M5.BtnA.isPressed() && buttonBMillis != 0 && buttonBMillis < millis() - 500) {
     Serial.println("Changing camera number");
     cameraNumber = (cameraNumber % 8) + 1;
     Serial.printf("New camera number: %d\n", cameraNumber);
@@ -130,17 +128,26 @@ void loop() {
 
   // Check for packets, respond to them etc. Keeping the connection alive!
   AtemSwitcher.runLoop();
+  refreshScreen();  
+}
 
+void refreshScreen()
+{
   int programTally = AtemSwitcher.getProgramTally(cameraNumber);
   int previewTally = AtemSwitcher.getPreviewTally(cameraNumber);
 
-  if ((orientation != orientationPrevious) || (cameraNumber != cameraNumberPrevious) || (programTallyPrevious != programTally) || (previewTallyPrevious != previewTally)) {  // changed?
-    if (programTally && !previewTally) {                                                                                                                                     // only program
-      drawLabel(TFT_RED, TFT_BLACK, LOW);
-    } else if (programTally && previewTally) {  // program AND preview
-      drawLabel(TFT_RED, TFT_BLACK, LOW);
-    } else if (previewTally && !programTally) {  // only preview
-      drawLabel(TFT_GREEN, TFT_BLACK, HIGH);
+  if ((orientation != orientationPrevious) 
+        || (cameraNumber != cameraNumberPrevious) 
+        || (programTallyPrevious != programTally) 
+        || (previewTallyPrevious != previewTally)
+        || (showBatteryLevel != showBatteryLevelPrevious)) 
+  {  
+  if (programTally && !previewTally) {            // only program
+      drawLabel(TFT_MAROON, TFT_BLACK, LOW);
+    } else if (programTally && previewTally) {    // program AND preview
+      drawLabel(TFT_PURPLE, TFT_BLACK, LOW);
+    } else if (previewTally && !programTally) {   // only preview
+      drawLabel(TFT_DARKGREEN, TFT_BLACK, HIGH);
     } else if (!previewTally || !programTally) {  // neither
       drawLabel(TFT_BLACK, TFT_DARKGREY, HIGH);
     }
@@ -150,27 +157,68 @@ void loop() {
   previewTallyPrevious = previewTally;
   cameraNumberPrevious = cameraNumber;
   orientationPrevious = orientation;
+  showBatteryLevelPrevious = showBatteryLevel;
 }
 
 void drawLabel(unsigned long int screenColor, unsigned long int labelColor, bool ledValue) {
   digitalWrite(LED_PIN, ledValue);
   M5.Lcd.fillScreen(screenColor);
-  M5.Lcd.setTextColor(labelColor, screenColor);
+  M5.Lcd.setTextColor(labelColor);
   drawStringInCenter(String(cameraNumber), 8);
 
-  if(batteryLevel)
-    M5.Lcd.drawString(String(getBatteryLevel()), 5, 5, 1);
+  showBatteryInfo();
 }
+
+void showBatteryInfo()
+{
+  int batteryLevel = getBatteryLevel();
+
+  if(batteryLevel <= 15 || showBatteryLevel)
+  {
+    float voltage = M5.Axp.GetBatVoltage();
+    float current = M5.Axp.GetBatCurrent();
+
+    char batteryStatus[9];
+    char chargingIcon = current == 0 ? ' ' : (current > 0 ? '+' : '-');
+    sprintf(batteryStatus, "%c%.2fv", chargingIcon, voltage);
+
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.setCursor(M5.Lcd.width() - 30,10);
+
+    M5.Lcd.setTextDatum(TL_DATUM);
+    M5.Lcd.drawString(batteryStatus, 1, 5, 1);
+
+    if(batteryLevel <= 15) 
+      M5.Lcd.setTextColor(TFT_RED);
+    else if(batteryLevel <= 40) 
+      M5.Lcd.setTextColor(TFT_YELLOW);
+    else
+      M5.Lcd.setTextColor(TFT_GREEN);
+
+    M5.Lcd.setTextDatum(TR_DATUM);
+    M5.Lcd.drawString(String(batteryLevel)+ "%", M5.Lcd.width() - 1, 5, 1);
+  }
+}
+
 
 void drawStringInCenter(String input, int font) {
   int datumPrevious = M5.Lcd.getTextDatum();
   M5.Lcd.setTextDatum(MC_DATUM);
+  M5.Lcd.setTextSize(1);
   M5.Lcd.drawString(input, M5.Lcd.width() / 2, M5.Lcd.height() / 2, font);
   M5.Lcd.setTextDatum(datumPrevious);
 }
 
-double getBatteryLevel(void) {
+
+int getBatteryLevel(void) {
   uint16_t vbatData = M5.Axp.GetVbatData();
   double vbat = vbatData * 1.1 / 1000;
-  return 100.0 * ((vbat - 3.0) / (4.07 - 3.0));
+  double percentage = 100.0 * ((vbat - 3.4) / (4.07 - 3.4));
+
+  if(percentage <= 0)
+    return 0;
+  else if(percentage >= 100)
+    return 100;
+  else 
+    return percentage;
 }
