@@ -9,28 +9,18 @@
 #include <ATEMstd.h>
 
 // Define the IP address of your ATEM switcher
-IPAddress switcherIp(10, 11, 200, 1);
+IPAddress switcherIp(192, 168, 200, 1);
 
 // Put your wifi SSID and password here
 const char* ssid = "";
 const char* password = "";
 
 // Set this to 1 if you want the orientation to update automatically
-#define AUTOUPDATE_ORIENTATION 0
-
-// You can customize the red/green/grey if you want
-// http://www.barth-dev.de/online/rgb565-color-picker/
-#define GRAY  0x0841 //   8   8  8
-#define GREEN 0x0400 //   0 128  0
-#define RED   0xF800 // 255   0  0
-
-
+#define AUTOUPDATE_ORIENTATION 1
 
 /////////////////////////////////////////////////////////////
 // You probably don't need to change things below this line
 #define LED_PIN 10
-
-ATEMstd AtemSwitcher;
 
 int orientation = 0;
 int orientationPrevious = 0;
@@ -38,6 +28,7 @@ int orientationMillisPrevious = millis();
 int buttonBMillis = 0;
 
 int cameraNumber = 1;
+bool batteryLevel = false;
 
 int previewTallyPrevious = 1;
 int programTallyPrevious = 1;
@@ -53,9 +44,10 @@ void setup() {
   }
   Serial.println("Connected to the WiFi network");
 
-  // 初期化
   M5.begin();
-  M5.MPU6886.Init();
+  //M5.MPU6886.Init();
+  M5.Imu.Init();
+
   M5.Lcd.setRotation(orientation);
 
   pinMode(LED_PIN, OUTPUT);
@@ -66,17 +58,21 @@ void setup() {
   AtemSwitcher.connect();
 
   // GPIO初期化
-  pinMode(26, INPUT); // PIN  (INPUT, OUTPUT, ANALOG)無線利用時にはANALOG利用不可, DAC出力可
-  pinMode(36, INPUT); // PIN  (INPUT,       , ANALOG)入力専用、INPUT_PULLUP等も不可
-  pinMode( 0, INPUT); // PIN  (INPUT, OUTPUT,       )外部回路でプルアップ済み
-  pinMode(32, INPUT); // GROVE(INPUT, OUTPUT, ANALOG)
-  pinMode(33, INPUT); // GROVE(INPUT, OUTPUT, ANALOG)
+  //pinMode(26, INPUT); // PIN  (INPUT, OUTPUT, ANALOG)無線利用時にはANALOG利用不可, DAC出力可
+  //pinMode(36, INPUT); // PIN  (INPUT,       , ANALOG)入力専用、INPUT_PULLUP等も不可
+  //pinMode( 0, INPUT); // PIN  (INPUT, OUTPUT,       )外部回路でプルアップ済み
+  //pinMode(32, INPUT); // GROVE(INPUT, OUTPUT, ANALOG)
+  //pinMode(33, INPUT); // GROVE(INPUT, OUTPUT, ANALOG)
 }
+
+
+
+
 
 void setOrientation() {
   float accX = 0, accY = 0, accZ = 0;
-  M5.MPU6886.getAccelData(&accX, &accY, &accZ);
-  //Serial.printf("%.2f   %.2f   %.2f \n",accX * 1000, accY * 1000, accZ * 1000);
+  M5.Imu.getAccelData(&accX, &accY, &accZ);
+  Serial.printf("%.2f   %.2f   %.2f \n", accX * 1000, accY * 1000, accZ * 1000);
 
   if (accZ < .9) {
     if (accX > .6) {
@@ -99,8 +95,12 @@ void setOrientation() {
 }
 
 
+void BtnM5() {
+  AtemSwitcher.changeProgramInput(cameraNumber);
+}
+
 void loop() {
-  // ボタンの状態更新
+
   M5.update();
 
   if (AUTOUPDATE_ORIENTATION) {
@@ -111,16 +111,18 @@ void loop() {
   }
 
   if (M5.BtnA.wasPressed()) {
-    AtemSwitcher.changeProgramInput(cameraNumber);
+    BtnM5();
   }
+
   if (M5.BtnB.wasPressed()) {
     setOrientation();
     buttonBMillis = millis();
+    batteryLevel = !batteryLevel;
   }
 
   if (M5.BtnB.isPressed() && buttonBMillis != 0 && buttonBMillis < millis() - 500) {
     Serial.println("Changing camera number");
-    cameraNumber = (cameraNumber % 4) + 1;
+    cameraNumber = (cameraNumber % 8) + 1;
     Serial.printf("New camera number: %d\n", cameraNumber);
 
     buttonBMillis = 0;
@@ -132,22 +134,22 @@ void loop() {
   int programTally = AtemSwitcher.getProgramTally(cameraNumber);
   int previewTally = AtemSwitcher.getPreviewTally(cameraNumber);
 
-  if ((orientation != orientationPrevious) || (cameraNumber != cameraNumberPrevious) || (programTallyPrevious != programTally) || (previewTallyPrevious != previewTally)) { // changed?
-    if (programTally && !previewTally) { // only program
-      drawLabel(RED, BLACK, LOW);
-    } else if (programTally && previewTally) { // program AND preview
-      drawLabel(RED, GREEN, LOW);
-    } else if (previewTally && !programTally) { // only preview
-      drawLabel(GREEN, BLACK, HIGH);
-    } else if (!previewTally || !programTally) { // neither
-      drawLabel(BLACK, GRAY, HIGH);
+  if ((orientation != orientationPrevious) || (cameraNumber != cameraNumberPrevious) || (programTallyPrevious != programTally) || (previewTallyPrevious != previewTally)) {  // changed?
+    if (programTally && !previewTally) {                                                                                                                                     // only program
+      drawLabel(TFT_RED, TFT_BLACK, LOW);
+    } else if (programTally && previewTally) {  // program AND preview
+      drawLabel(TFT_RED, TFT_BLACK, LOW);
+    } else if (previewTally && !programTally) {  // only preview
+      drawLabel(TFT_GREEN, TFT_BLACK, HIGH);
+    } else if (!previewTally || !programTally) {  // neither
+      drawLabel(TFT_BLACK, TFT_DARKGREY, HIGH);
     }
   }
 
   programTallyPrevious = programTally;
   previewTallyPrevious = previewTally;
   cameraNumberPrevious = cameraNumber;
-  orientationPrevious  = orientation;
+  orientationPrevious = orientation;
 }
 
 void drawLabel(unsigned long int screenColor, unsigned long int labelColor, bool ledValue) {
@@ -155,6 +157,9 @@ void drawLabel(unsigned long int screenColor, unsigned long int labelColor, bool
   M5.Lcd.fillScreen(screenColor);
   M5.Lcd.setTextColor(labelColor, screenColor);
   drawStringInCenter(String(cameraNumber), 8);
+
+  if(batteryLevel)
+    M5.Lcd.drawString(String(getBatteryLevel()), 5, 5, 1);
 }
 
 void drawStringInCenter(String input, int font) {
@@ -164,3 +169,8 @@ void drawStringInCenter(String input, int font) {
   M5.Lcd.setTextDatum(datumPrevious);
 }
 
+double getBatteryLevel(void) {
+  uint16_t vbatData = M5.Axp.GetVbatData();
+  double vbat = vbatData * 1.1 / 1000;
+  return 100.0 * ((vbat - 3.0) / (4.07 - 3.0));
+}
