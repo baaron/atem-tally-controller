@@ -1,5 +1,5 @@
 // http://librarymanager/All#M5StickC https://github.com/m5stack/M5StickC
-#include <M5StickC.h>
+#include <M5StickCPlus.h>
 #include <WiFi.h>
 
 // Download these from here
